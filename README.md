@@ -1,14 +1,17 @@
-# C++ スタブ設計のテクニック
+English | [日本語](README_ja.md)
 
-単体テストのカバレッジを 100% にするためのスタブ設計のノウハウです。
-このリポジトリは、そのテクニックを [CppDatasetUtil](https://github.com/fangface-hub/CppDatasetUtil) を使う SUT に適用した具体例です。
+# C++ Stub Design Techniques
 
-- テスト対象(SUT)のコードを一切変更しない
-- `virtual` は一切不要
-- テストコードは `SUT` という名前だけを書く。実クラスを知っているのはスタブだけ
-- メソッドごとに「本物」と「スタブ」を切り替えられる
+Know-how on stub design for reaching 100% unit-test coverage in C++.
+This repository is a concrete example of the technique, applied to a SUT that
+uses [CppDatasetUtil](https://github.com/fangface-hub/CppDatasetUtil).
 
-## テスト対象
+- No changes to the code under test (SUT)
+- No `virtual` needed
+- Test code only ever writes the name `SUT`; only the stub knows the real class
+- Each method can be switched individually between real and stubbed
+
+## Code under test
 
 **src/SUT.h**
 
@@ -53,14 +56,14 @@ int SUT::Process(const Dataset& data) {
 }
 ```
 
-`Calc` は 3 経路(キー無し / 整数 / 整数以外)、`Process` は 2 経路(正常 / 例外)を持ちます。
-`Process` は内部で `Calc` を呼びます。
+`Calc` has three paths (key absent / integer / not an integer) and `Process`
+has two (normal / exception). `Process` calls `Calc` internally.
 
-## テストスタブ
+## Test stub
 
-仕組みは 2 つのヘッダに分かれています。
+The mechanism is split across two headers.
 
-### 1. メソッド名の付け替え(SUTRename.h)
+### 1. Renaming the methods (SUTRename.h)
 
 **test/SUTRename.h**
 
@@ -76,16 +79,18 @@ int SUT::Process(const Dataset& data) {
 #include "SUT.h"
 ```
 
-`Calc` / `Process` を `CalcStub` / `ProcessStub` に付け替えます。
-これで元の名前 `Calc` / `Process` がスタブ側で使えるようになります。
+`Calc` / `Process` are renamed to `CalcStub` / `ProcessStub`, which frees the
+original names for the stub class.
 
-- マクロ定義の**前**に、付け替えたくない標準ヘッダやライブラリのヘッダをインクルードします。
-  マクロがライブラリ内の同名メソッドを壊すのを防ぎます。
-- `SUT.cpp` のコンパイル時に `--include SUTRename.h` で強制インクルードします。
-  `SUT.cpp` が定義するのは `SUT::CalcStub` / `SUT::ProcessStub` になります。
-  `Process` 内の `Calc(data)` も `CalcStub(data)` に置き換わるため、**SUT 内部の自己呼び出しは常に本物を通ります**。
+- Include every header that must not be renamed (standard and library
+  headers) **before** the macros, so they cannot break same-named members
+  inside the library.
+- `SUT.cpp` is compiled with `--include SUTRename.h`, so it defines
+  `SUT::CalcStub` / `SUT::ProcessStub`. The `Calc(data)` call inside `Process`
+  also becomes `CalcStub(data)`, so **the SUT's self-calls always reach the
+  real code**.
 
-### 2. スタブクラス(SUTStub.h)
+### 2. The stub class (SUTStub.h)
 
 **test/SUTStub.h**
 
@@ -139,16 +144,19 @@ class SUTStub : public SUT {
 #define SUT SUTStub
 ```
 
-- `SUTStub` は `SUT` を継承し、元の名前 `Calc` / `Process` を定義します。
-  `useReal` が真なら `SUT::CalcStub` などの本物を、偽なら設定済みのスタブ値を返します。
-- 戻り値の型が増える場合は `StubValue`(union)にメンバーと `StubTag` を足します。
-  メソッドごとに戻り値型が違っても、`configMap` 1 つで管理できます。
-- 末尾の `#define SUT SUTStub` が要点です。**実コード上の `SUT` を `SUTStub` に置き換え、`SUT` を知っているのは `SUTStub` だけにします。**
-  テストコードは `SUT sut;` と書くだけで、実体はスタブになります。
+- `SUTStub` derives from `SUT` and defines the original names `Calc` /
+  `Process`. If `useReal` is true it calls the real `SUT::CalcStub` etc.;
+  otherwise it returns the configured stub value.
+- To support more return types, add a member to `StubValue` (the union) and a
+  value to `StubTag`. One `configMap` manages methods with different return
+  types.
+- The final `#define SUT SUTStub` is the key. **It replaces `SUT` with
+  `SUTStub` in the real code, so only `SUTStub` knows the real `SUT`.** Test
+  code just writes `SUT sut;` and gets the stub.
 
-## テストコード
+## Test code
 
-**test/test_sut.cpp**(抜粋。`#include "SUTStub.h"` は書かない)
+**test/test_sut.cpp** (excerpt; it does not `#include "SUTStub.h"`)
 
 ```cpp
 int main() {
@@ -184,55 +192,68 @@ int main() {
 }
 ```
 
-## ビルド
+## Build
 
 ```makefile
-# SUT: 付け替えヘッダを強制インクルードし、SUT だけをカバレッジ計測の対象にする
+# SUT: force-include the rename header; only the SUT is instrumented for coverage
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTRename.h -c src/SUT.cpp -o build/SUT.o
 
-# テスト: スタブを強制インクルード(テスト自体とライブラリは計測しない)
+# Test: force-include the stub (the test itself and the library are not measured)
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
     test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
 ```
 
-実際の `Makefile` は [Makefile](Makefile) を参照してください。
+See the [Makefile](Makefile) for the real build.
 
 ```sh
 git submodule update --init
-make test       # ビルドして実行
-make coverage   # gcov。SUT.cpp の行カバレッジが 100% でなければ失敗
+make test       # build and run
+make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 ```
 
-g++(C++17)、make、gcov が必要です。CppDatasetUtil は `third_party/CppDatasetUtil` にサブモジュールとして置いてあります。
+Requires g++ (C++17), make, and gcov. CppDatasetUtil is a submodule in
+`third_party/CppDatasetUtil`.
 
-## 内部呼び出しの挙動
+## Behavior of internal calls
 
-| 呼び出し | 結果 |
+| Call | Result |
 | :-- | :-- |
-| `stub.Calc(five)`、Calc を本物に設定 | `SUT::CalcStub(five)` → 10 |
-| `stub.Calc(five)`、Calc をスタブに設定 | スタブ値 |
-| `stub.Process(five)`、Process をスタブに設定 | スタブ値(100) |
-| `stub.Process(five)`、Process を本物に設定 | `SUT::ProcessStub(five)` → 内部で `CalcStub`(本物)→ 11 |
+| `stub.Calc(five)`, Calc set to real | `SUT::CalcStub(five)` → 10 |
+| `stub.Calc(five)`, Calc set to stub | the stub value |
+| `stub.Process(five)`, Process set to stub | the stub value (100) |
+| `stub.Process(five)`, Process set to real | `SUT::ProcessStub(five)` → internally `CalcStub` (real) → 11 |
 
-- SUT 内部の自己呼び出し(`Process` → `Calc`)は常に本物(`CalcStub`)を通る
-- スタブ化されるのはテストコードからの直接呼び出しのみ
-- `virtual` は一切不要
+- The SUT's self-calls (`Process` → `Calc`) always go through the real code
+  (`CalcStub`)
+- Only calls made directly from the test code are stubbed
+- No `virtual` at all
 
-## カバレッジ 100% を達成するコツ
+## Tips for reaching 100% coverage
 
-- **本物を呼ぶテストで全経路を通す**: スタブはテストから見える入口を差し替えるだけです。SUT 内部の分岐は、本物のメソッドに入力を変えて呼ぶことで網羅します。
-  この例では `Calc` の 3 経路は `Calc` を本物にして 3 通りの `Dataset` で、`Process` の例外分岐は `Process` を本物にして整数でない `x` を渡して通します。
-- **計測対象を SUT だけにする**: `--coverage` は `SUT.cpp` のコンパイルとリンクにだけ付けます。テストコードやライブラリを混ぜると数値が薄まります(`make coverage` は `SUT.cpp` だけを判定します)。
-- **判定は行カバレッジ**: gcov の分岐カバレッジには、コンパイラが生成する例外処理や `std::string` 内部の分岐が含まれ、テストからは通せないものがあります。この例では分岐は 68.75% ですが、`Dataset` の分岐は全て通しており、`make coverage` は参考値として出力するだけです。
-- **`private` のメソッドを直接テストしたいとき**: `SUTRename.h` の `#include "SUT.h"` の前後を `#define private public` / `#undef private` で挟みます(標準ヘッダを先にインクルードしておくこと)。この例の SUT には `private` が無いので使っていません。
+- **Cover every path with tests that call the real method.** A stub only
+  replaces the entry point the test sees. Cover the SUT's internal branches by
+  calling the real method with different inputs. Here, the three paths of
+  `Calc` are covered with three `Dataset`s and real `Calc`, and the exception
+  branch of `Process` with real `Process` and a non-integer `x`.
+- **Measure only the SUT.** Add `--coverage` only when compiling `SUT.cpp` and
+  when linking. Including the test code or the library dilutes the number
+  (`make coverage` judges `SUT.cpp` only).
+- **Gate on line coverage.** gcov's branch coverage includes compiler-generated
+  exception and `std::string` internals that tests cannot reach. Here branch
+  coverage is 68.75% although every `Dataset` branch is covered;
+  `make coverage` prints it for reference only.
+- **To test `private` methods directly**, wrap the `#include "SUT.h"` in
+  `SUTRename.h` with `#define private public` / `#undef private` (after the
+  standard headers are included). This SUT has no private members, so it is
+  not used here.
 
-## ファイル構成
+## Files
 
-| ファイル | 役割 |
+| File | Role |
 | :-- | :-- |
-| `src/SUT.h`, `src/SUT.cpp` | テスト対象 |
-| `test/SUTRename.h` | メソッド名の付け替え |
-| `test/SUTStub.h` | スタブクラスと `#define SUT SUTStub` |
-| `test/test_sut.cpp` | テストコード |
-| `Makefile` | ビルドとカバレッジ判定 |
-| `third_party/CppDatasetUtil` | サブモジュール |
+| `src/SUT.h`, `src/SUT.cpp` | Code under test |
+| `test/SUTRename.h` | Method renaming |
+| `test/SUTStub.h` | Stub class and `#define SUT SUTStub` |
+| `test/test_sut.cpp` | Test code |
+| `Makefile` | Build and coverage gate |
+| `third_party/CppDatasetUtil` | Submodule |
