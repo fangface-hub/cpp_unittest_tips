@@ -244,3 +244,7 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 | `test/test_sut.cpp` | 测试代码 |
 | `Makefile` | 构建和覆盖率判定 |
 | `third_party/CppDatasetUtil` | 子模块 |
+
+---
+
+文档版本: 1.0.0

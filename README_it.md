@@ -257,3 +257,7 @@ Richiede g++ (C++17), make e gcov. CppDatasetUtil è un sottomodulo in
 | `test/test_sut.cpp` | Codice di test |
 | `Makefile` | Build e controllo della copertura |
 | `third_party/CppDatasetUtil` | Sottomodulo |
+
+---
+
+Versione del documento: 1.0.0

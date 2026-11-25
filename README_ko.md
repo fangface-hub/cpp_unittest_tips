@@ -253,3 +253,7 @@ g++(C++17), make, gcov가 필요합니다. CppDatasetUtil은
 | `test/test_sut.cpp` | 테스트 코드 |
 | `Makefile` | 빌드와 커버리지 판정 |
 | `third_party/CppDatasetUtil` | 서브모듈 |
+
+---
+
+문서 버전: 1.0.0

@@ -232,3 +232,7 @@ g++(C++17)、make、gcov が必要です。CppDatasetUtil は `third_party/CppDa
 | `test/test_sut.cpp` | テストコード |
 | `Makefile` | ビルドとカバレッジ判定 |
 | `third_party/CppDatasetUtil` | サブモジュール |
+
+---
+
+文書バージョン: 1.0.0

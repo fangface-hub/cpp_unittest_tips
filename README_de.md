@@ -259,3 +259,7 @@ in `third_party/CppDatasetUtil`.
 | `test/test_sut.cpp` | Testcode |
 | `Makefile` | Build und Abdeckungsprüfung |
 | `third_party/CppDatasetUtil` | Submodul |
+
+---
+
+Dokumentversion: 1.0.0

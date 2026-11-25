@@ -257,3 +257,7 @@ Requires g++ (C++17), make, and gcov. CppDatasetUtil is a submodule in
 | `test/test_sut.cpp` | Test code |
 | `Makefile` | Build and coverage gate |
 | `third_party/CppDatasetUtil` | Submodule |
+
+---
+
+Document version: 1.0.0
