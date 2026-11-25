@@ -251,4 +251,4 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 
 ---
 
-文档版本: 1.0.0
+文档版本: 1.0.1

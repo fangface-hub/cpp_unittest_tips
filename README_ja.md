@@ -239,4 +239,4 @@ g++(C++17)、make、gcov が必要です。CppDatasetUtil は `third_party/CppDa
 
 ---
 
-文書バージョン: 1.0.0
+文書バージョン: 1.0.1

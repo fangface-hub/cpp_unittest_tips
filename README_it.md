@@ -264,4 +264,4 @@ Richiede g++ (C++17), make e gcov. CppDatasetUtil è un sottomodulo in
 
 ---
 
-Versione del documento: 1.0.0
+Versione del documento: 1.0.1
