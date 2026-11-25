@@ -65,16 +65,16 @@ int SUT::Process(const Dataset& data) {
 
 ```cpp
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -86,8 +86,6 @@ int SUT::Process(const Dataset& data) {
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -132,12 +130,10 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST
 ```
 - **付け替え**: `SUT.h` をインクルードする前に `#define Calc CalcStub` / `#define Process ProcessStub` で SUT のメソッド名を付け替え、元の名前をスタブクラスで使えるようにします。
   付け替えたくない標準ヘッダやライブラリのヘッダは、これらのマクロの**前**にインクルードします。ライブラリ内の同名メソッドを壊さないためです。
-- **SUT も同じヘッダでコンパイル**: `SUT.cpp` は `-DSUT_UNDER_TEST --include SUTStub.h` でコンパイルします。付け替えだけが有効になり、`SUT::CalcStub` / `SUT::ProcessStub` が定義されます。
+- **本物の SUT も同じヘッダでコンパイル**: 実ビルドは `SUTStub.h` を一切使いません。テストビルドでは `test/SUTStub.cpp` がこれをインクルードし、末尾の `#define SUT SUTStub` を `#undef` して付け替えを再度有効にしたうえで、無修正の `SUT.cpp` をインクルードします。これにより `SUT::CalcStub` / `SUT::ProcessStub` が定義されます。
   `Process` 内の `Calc(data)` も `CalcStub(data)` に置き換わるため、**SUT 内部の自己呼び出しは常に本物を通ります**。
 - **スタブクラス**: `SUTStub` は `SUT` を継承し、元の名前 `Calc` / `Process` を定義します。
   `useReal` が真なら `SUT::CalcStub` などの本物を、偽なら設定済みのスタブ値を返します。
@@ -187,12 +183,12 @@ int main() {
 ## ビルド
 
 ```makefile
-# SUT: スタブヘッダの付け替え部分だけを有効にし、SUT だけをカバレッジ計測の対象にする
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
+# SUT: SUTStub.cpp がスタブヘッダ付きで本物の SUT.cpp をコンパイルする。計測対象はこのオブジェクトだけ
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h -c test/SUTStub.cpp -o build/SUTStub.o
 
-# テスト: スタブを強制インクルード(テスト自体とライブラリは計測しない)
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
-    test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
+# テスト: テスト自体とライブラリは計測しない
+$(CXX) -std=c++17 $(CPPFLAGS) --include SUTStub.h -c test/test_sut.cpp -o build/test_sut.o
+$(CXX) --coverage build/test_sut.o build/SUTStub.o libcppdatasetutil.a -o build/test_sut
 ```
 
 実際の `Makefile` は [Makefile](Makefile) を参照してください。
@@ -231,7 +227,8 @@ g++(C++17)、make、gcov が必要です。CppDatasetUtil は `third_party/CppDa
 | ファイル | 役割 |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | テスト対象 |
-| `test/SUTStub.h` | スタブクラスと `#define SUT SUTStub` |
+| `test/SUTStub.h` | 付け替え、スタブクラス、`#define SUT SUTStub` |
+| `test/SUTStub.cpp` | スタブヘッダを使って本物の `SUT.cpp` をコンパイル |
 | `test/test_sut.cpp` | テストコード |
 | `Makefile` | ビルドとカバレッジ判定 |
 | `third_party/CppDatasetUtil` | サブモジュール |

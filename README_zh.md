@@ -66,16 +66,16 @@ int SUT::Process(const Dataset& data) {
 
 ```cpp
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -87,8 +87,6 @@ int SUT::Process(const Dataset& data) {
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -133,15 +131,14 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST
 ```
 - **重命名**：在包含 `SUT.h` 之前，用 `#define Calc CalcStub` /
   `#define Process ProcessStub` 重命名 SUT 的方法，从而把原来的名字留给桩类使用。
   不能被重命名的头文件（标准头文件和库头文件）要在这些宏**之前**包含，以免宏
   破坏库中的同名成员。
-- **SUT 也用同一个头文件编译**：`SUT.cpp` 使用
-  `-DSUT_UNDER_TEST --include SUTStub.h` 编译，只有重命名生效，它定义的是
+- **真实的 SUT 也用同一个头文件编译**：正式构建完全不使用 `SUTStub.h`。
+  在测试构建中，`test/SUTStub.cpp` 包含它，撤销末尾的 `#define SUT SUTStub`，
+  重新启用重命名，再包含未经修改的 `SUT.cpp`，从而定义
   `SUT::CalcStub` / `SUT::ProcessStub`。`Process` 内部的 `Calc(data)` 调用也会
   变成 `CalcStub(data)`，所以 **SUT 内部的自我调用始终走真实代码**。
 - **桩类**：`SUTStub` 继承 `SUT`，并定义原来的名字 `Calc` / `Process`。
@@ -192,12 +189,12 @@ int main() {
 ## 构建
 
 ```makefile
-# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
+# SUT: SUTStub.cpp compiles the real SUT.cpp with the stub header; only this object is instrumented
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h -c test/SUTStub.cpp -o build/SUTStub.o
 
-# Test: force-include the stub (the test itself and the library are not measured)
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
-    test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
+# Test: the test itself and the library are not measured
+$(CXX) -std=c++17 $(CPPFLAGS) --include SUTStub.h -c test/test_sut.cpp -o build/test_sut.o
+$(CXX) --coverage build/test_sut.o build/SUTStub.o libcppdatasetutil.a -o build/test_sut
 ```
 实际的构建请参见 [Makefile](Makefile)。
 
@@ -242,7 +239,8 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 | 文件 | 作用 |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | 被测代码 |
-| `test/SUTStub.h` | 桩类和 `#define SUT SUTStub` |
+| `test/SUTStub.h` | 重命名、桩类和 `#define SUT SUTStub` |
+| `test/SUTStub.cpp` | 用桩头文件编译真实的 `SUT.cpp` |
 | `test/test_sut.cpp` | 测试代码 |
 | `Makefile` | 构建和覆盖率判定 |
 | `third_party/CppDatasetUtil` | 子模块 |

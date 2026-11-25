@@ -67,16 +67,16 @@ expliquent chaque étape ; les points à retenir sont ci-dessous.
 
 ```cpp
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -88,8 +88,6 @@ expliquent chaque étape ; les points à retenir sont ci-dessous.
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -134,19 +132,19 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST
 ```
 - **Renommer.** `#define Calc CalcStub` / `#define Process ProcessStub`
   renomment les méthodes du SUT avant l'inclusion de `SUT.h`, ce qui libère les
   noms d'origine pour la classe stub. Incluez tous les en-têtes qui ne doivent
   pas être renommés (en-têtes standard et de bibliothèques) **avant** ces
   macros, afin de ne pas casser les membres homonymes de la bibliothèque.
-- **Compiler le SUT avec le même en-tête.** `SUT.cpp` est compilé avec
-  `-DSUT_UNDER_TEST --include SUTStub.h` ; seul le renommage prend effet et il
-  définit `SUT::CalcStub` / `SUT::ProcessStub`. L'appel `Calc(data)` dans
-  `Process` devient lui aussi `CalcStub(data)`, de sorte que **les auto-appels
-  du SUT atteignent toujours le vrai code**.
+- **Compiler le vrai SUT avec le même en-tête.** Le build de production
+  n'utilise jamais `SUTStub.h`. Dans le build de test, `test/SUTStub.cpp`
+  l'inclut, annule le `#define SUT SUTStub` final, réactive le renommage et
+  inclut le `SUT.cpp` non modifié, qui définit ainsi `SUT::CalcStub` /
+  `SUT::ProcessStub`. L'appel `Calc(data)` dans `Process` devient lui aussi
+  `CalcStub(data)`, de sorte que **les auto-appels du SUT atteignent toujours
+  le vrai code**.
 - **Classe stub.** `SUTStub` dérive de `SUT` et définit les noms d'origine
   `Calc` / `Process`. Si `useReal` est vrai, elle appelle le vrai
   `SUT::CalcStub` etc. ; sinon elle renvoie la valeur de stub configurée.
@@ -197,12 +195,12 @@ int main() {
 ## Compilation
 
 ```makefile
-# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
+# SUT: SUTStub.cpp compiles the real SUT.cpp with the stub header; only this object is instrumented
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h -c test/SUTStub.cpp -o build/SUTStub.o
 
-# Test: force-include the stub (the test itself and the library are not measured)
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
-    test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
+# Test: the test itself and the library are not measured
+$(CXX) -std=c++17 $(CPPFLAGS) --include SUTStub.h -c test/test_sut.cpp -o build/test_sut.o
+$(CXX) --coverage build/test_sut.o build/SUTStub.o libcppdatasetutil.a -o build/test_sut
 ```
 Consultez le [Makefile](Makefile) pour la compilation réelle.
 
@@ -254,7 +252,8 @@ Nécessite g++ (C++17), make et gcov. CppDatasetUtil est un sous-module dans
 | Fichier | Rôle |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | Code testé |
-| `test/SUTStub.h` | Classe stub et `#define SUT SUTStub` |
+| `test/SUTStub.h` | Renommage, classe stub et `#define SUT SUTStub` |
+| `test/SUTStub.cpp` | Compile le vrai `SUT.cpp` avec l'en-tête stub |
 | `test/test_sut.cpp` | Code de test |
 | `Makefile` | Compilation et contrôle de la couverture |
 | `third_party/CppDatasetUtil` | Sous-module |

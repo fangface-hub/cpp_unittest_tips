@@ -1,14 +1,14 @@
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -20,8 +20,6 @@
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -66,5 +64,3 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST

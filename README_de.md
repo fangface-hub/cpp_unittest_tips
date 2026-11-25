@@ -67,16 +67,16 @@ erklären jeden Schritt; die wichtigsten Punkte stehen unten.
 
 ```cpp
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -88,8 +88,6 @@ erklären jeden Schritt; die wichtigsten Punkte stehen unten.
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -134,8 +132,6 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST
 ```
 - **Umbenennen.** `#define Calc CalcStub` / `#define Process ProcessStub`
   benennen die Methoden des SUT um, bevor `SUT.h` eingebunden wird; die
@@ -143,9 +139,11 @@ class SUTStub : public SUT {
   Header, die nicht umbenannt werden dürfen (Standard- und Bibliotheks-Header),
   **vor** diesen Makros ein, damit gleichnamige Member in der Bibliothek nicht
   beschädigt werden.
-- **Das SUT mit demselben Header kompilieren.** `SUT.cpp` wird mit
-  `-DSUT_UNDER_TEST --include SUTStub.h` kompiliert; nur das Umbenennen wirkt
-  und es definiert `SUT::CalcStub` / `SUT::ProcessStub`. Auch der Aufruf
+- **Das echte SUT mit demselben Header kompilieren.** Der Produktiv-Build
+  verwendet `SUTStub.h` nie. Im Test-Build bindet `test/SUTStub.cpp` ihn ein,
+  macht das abschließende `#define SUT SUTStub` rückgängig, aktiviert das
+  Umbenennen erneut und bindet die unveränderte `SUT.cpp` ein, sodass
+  `SUT::CalcStub` / `SUT::ProcessStub` definiert werden. Auch der Aufruf
   `Calc(data)` in `Process` wird zu `CalcStub(data)`, sodass **Selbstaufrufe des
   SUT immer den echten Code erreichen**.
 - **Stub-Klasse.** `SUTStub` erbt von `SUT` und definiert die ursprünglichen
@@ -199,12 +197,12 @@ int main() {
 ## Build
 
 ```makefile
-# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
+# SUT: SUTStub.cpp compiles the real SUT.cpp with the stub header; only this object is instrumented
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h -c test/SUTStub.cpp -o build/SUTStub.o
 
-# Test: force-include the stub (the test itself and the library are not measured)
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
-    test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
+# Test: the test itself and the library are not measured
+$(CXX) -std=c++17 $(CPPFLAGS) --include SUTStub.h -c test/test_sut.cpp -o build/test_sut.o
+$(CXX) --coverage build/test_sut.o build/SUTStub.o libcppdatasetutil.a -o build/test_sut
 ```
 Den tatsächlichen Build finden Sie im [Makefile](Makefile).
 
@@ -256,7 +254,8 @@ in `third_party/CppDatasetUtil`.
 | Datei | Rolle |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | Zu testender Code |
-| `test/SUTStub.h` | Stub-Klasse und `#define SUT SUTStub` |
+| `test/SUTStub.h` | Umbenennen, Stub-Klasse und `#define SUT SUTStub` |
+| `test/SUTStub.cpp` | Kompiliert die echte `SUT.cpp` gegen den Stub-Header |
 | `test/test_sut.cpp` | Testcode |
 | `Makefile` | Build und Abdeckungsprüfung |
 | `third_party/CppDatasetUtil` | Submodul |

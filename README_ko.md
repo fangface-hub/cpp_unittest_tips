@@ -66,16 +66,16 @@ int SUT::Process(const Dataset& data) {
 
 ```cpp
 #pragma once
-// Stub for SUT. This single header is used in two ways (see the Makefile):
+// Stub for SUT, compiled into every test build with --include SUTStub.h.
+// The production build never uses this header.
 //
-//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
-//     Only the renaming below takes effect, so SUT.cpp defines
-//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
-//     Process is renamed too, so the SUT's self-calls always reach real code.
-//
-//  2. Compiling the test:     --include SUTStub.h
-//     The test only ever writes "SUT"; the final #define turns it into
-//     SUTStub, so SUTStub is the only code that knows the real class.
+//  - Calc / Process are renamed CalcStub / ProcessStub before SUT.h is read.
+//    test/SUTStub.cpp compiles the real SUT.cpp with the same renaming, so a
+//    call such as Calc(data) inside Process is renamed too and the SUT's
+//    self-calls always reach real code.
+//  - SUTStub derives from SUT and defines the original names.
+//  - The final #define turns "SUT" into SUTStub, so the test only ever writes
+//    "SUT" and SUTStub is the only code that knows the real class.
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -87,8 +87,6 @@ int SUT::Process(const Dataset& data) {
 #define Calc CalcStub
 #define Process ProcessStub
 #include "SUT.h"
-
-#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -133,19 +131,19 @@ class SUTStub : public SUT {
 
 // From here on, "SUT" means the stub.
 #define SUT SUTStub
-
-#endif  // SUT_UNDER_TEST
 ```
 - **이름 바꾸기**: `SUT.h`를 인클루드하기 전에 `#define Calc CalcStub` /
   `#define Process ProcessStub`으로 SUT의 메서드 이름을 바꿔, 원래 이름을 스텁
   클래스에서 사용할 수 있게 합니다. 이름을 바꾸면 안 되는 헤더(표준 헤더와
   라이브러리 헤더)는 이 매크로들보다 **앞에** 인클루드하여, 라이브러리 안의
   같은 이름의 멤버가 깨지지 않게 합니다.
-- **SUT도 같은 헤더로 컴파일**: `SUT.cpp`는
-  `-DSUT_UNDER_TEST --include SUTStub.h`로 컴파일합니다. 이름 바꾸기만 적용되어
-  `SUT::CalcStub` / `SUT::ProcessStub`이 정의됩니다. `Process` 안의
-  `Calc(data)` 호출도 `CalcStub(data)`로 바뀌므로 **SUT 내부의 자기 호출은 항상
-  실제 코드를 거칩니다**.
+- **실제 SUT도 같은 헤더로 컴파일**: 실제(제품) 빌드는 `SUTStub.h`를 전혀
+  사용하지 않습니다. 테스트 빌드에서는 `test/SUTStub.cpp`가 이를 인클루드하고,
+  마지막의 `#define SUT SUTStub`을 `#undef`한 뒤 이름 바꾸기를 다시 활성화하여
+  수정하지 않은 `SUT.cpp`를 인클루드합니다. 그래서 `SUT::CalcStub` /
+  `SUT::ProcessStub`이 정의됩니다. `Process` 안의 `Calc(data)` 호출도
+  `CalcStub(data)`로 바뀌므로 **SUT 내부의 자기 호출은 항상 실제 코드를
+  거칩니다**.
 - **스텁 클래스**: `SUTStub`은 `SUT`를 상속하고 원래 이름 `Calc` / `Process`를
   정의합니다. `useReal`이 참이면 실제 `SUT::CalcStub` 등을 호출하고, 거짓이면
   설정된 스텁 값을 반환합니다.
@@ -196,12 +194,12 @@ int main() {
 ## 빌드
 
 ```makefile
-# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
+# SUT: SUTStub.cpp compiles the real SUT.cpp with the stub header; only this object is instrumented
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h -c test/SUTStub.cpp -o build/SUTStub.o
 
-# Test: force-include the stub (the test itself and the library are not measured)
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
-    test/test_sut.cpp build/SUT.o libcppdatasetutil.a -o build/test_sut
+# Test: the test itself and the library are not measured
+$(CXX) -std=c++17 $(CPPFLAGS) --include SUTStub.h -c test/test_sut.cpp -o build/test_sut.o
+$(CXX) --coverage build/test_sut.o build/SUTStub.o libcppdatasetutil.a -o build/test_sut
 ```
 실제 빌드는 [Makefile](Makefile)을 참조하세요.
 
@@ -250,7 +248,8 @@ g++(C++17), make, gcov가 필요합니다. CppDatasetUtil은
 | 파일 | 역할 |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | 테스트 대상 |
-| `test/SUTStub.h` | 스텁 클래스와 `#define SUT SUTStub` |
+| `test/SUTStub.h` | 이름 바꾸기, 스텁 클래스, `#define SUT SUTStub` |
+| `test/SUTStub.cpp` | 스텁 헤더로 실제 `SUT.cpp`를 컴파일 |
 | `test/test_sut.cpp` | 테스트 코드 |
 | `Makefile` | 빌드와 커버리지 판정 |
 | `third_party/CppDatasetUtil` | 서브모듈 |
