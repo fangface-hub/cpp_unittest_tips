@@ -1,4 +1,4 @@
-[English](README.md) | 日本語
+[English](README.md) | 日本語 | [Deutsch](README_de.md) | [Français](README_fr.md) | [Italiano](README_it.md) | [한국어](README_ko.md) | [简体中文](README_zh.md)
 
 # C++ スタブ設計のテクニック
 

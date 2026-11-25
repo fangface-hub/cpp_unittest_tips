@@ -1,4 +1,4 @@
-English | [日本語](README_ja.md)
+English | [日本語](README_ja.md) | [Deutsch](README_de.md) | [Français](README_fr.md) | [Italiano](README_it.md) | [한국어](README_ko.md) | [简体中文](README_zh.md)
 
 # C++ Stub Design Techniques
 
