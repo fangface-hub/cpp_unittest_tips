@@ -87,6 +87,10 @@ erklären jeden Schritt; die wichtigsten Punkte stehen unten.
 // Rename the SUT's methods, freeing the original names for the stub class.
 #define Calc CalcStub
 #define Process ProcessStub
+// Drop a leftover "#define SUT SUTStub" if this header is seen again.
+#ifdef SUT
+#undef SUT
+#endif
 #include "SUT.h"
 
 #undef Calc
@@ -262,4 +266,4 @@ in `third_party/CppDatasetUtil`.
 
 ---
 
-Dokumentversion: 1.0.0
+Dokumentversion: 1.0.1

@@ -87,6 +87,10 @@ each step; the points to remember are below.
 // Rename the SUT's methods, freeing the original names for the stub class.
 #define Calc CalcStub
 #define Process ProcessStub
+// Drop a leftover "#define SUT SUTStub" if this header is seen again.
+#ifdef SUT
+#undef SUT
+#endif
 #include "SUT.h"
 
 #undef Calc
@@ -260,4 +264,4 @@ Requires g++ (C++17), make, and gcov. CppDatasetUtil is a submodule in
 
 ---
 
-Document version: 1.0.0
+Document version: 1.0.1

@@ -85,6 +85,10 @@ int SUT::Process(const Dataset& data) {
 // Rename the SUT's methods, freeing the original names for the stub class.
 #define Calc CalcStub
 #define Process ProcessStub
+// Drop a leftover "#define SUT SUTStub" if this header is seen again.
+#ifdef SUT
+#undef SUT
+#endif
 #include "SUT.h"
 
 #undef Calc
@@ -235,4 +239,4 @@ g++(C++17)、make、gcov が必要です。CppDatasetUtil は `third_party/CppDa
 
 ---
 
-文書バージョン: 1.0.0
+文書バージョン: 1.0.1

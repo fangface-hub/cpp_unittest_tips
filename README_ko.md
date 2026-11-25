@@ -86,6 +86,10 @@ int SUT::Process(const Dataset& data) {
 // Rename the SUT's methods, freeing the original names for the stub class.
 #define Calc CalcStub
 #define Process ProcessStub
+// Drop a leftover "#define SUT SUTStub" if this header is seen again.
+#ifdef SUT
+#undef SUT
+#endif
 #include "SUT.h"
 
 #undef Calc
@@ -256,4 +260,4 @@ g++(C++17), make, gcov가 필요합니다. CppDatasetUtil은
 
 ---
 
-문서 버전: 1.0.0
+문서 버전: 1.0.1

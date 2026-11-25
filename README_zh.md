@@ -86,6 +86,10 @@ int SUT::Process(const Dataset& data) {
 // Rename the SUT's methods, freeing the original names for the stub class.
 #define Calc CalcStub
 #define Process ProcessStub
+// Drop a leftover "#define SUT SUTStub" if this header is seen again.
+#ifdef SUT
+#undef SUT
+#endif
 #include "SUT.h"
 
 #undef Calc
@@ -247,4 +251,4 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 
 ---
 
-文档版本: 1.0.0
+文档版本: 1.0.1
