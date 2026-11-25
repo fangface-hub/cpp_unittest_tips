@@ -59,43 +59,36 @@ int SUT::Process(const Dataset& data) {
 
 ## 테스트 스텁
 
-이 구조는 두 개의 헤더로 나뉩니다.
-
-### 1. 메서드 이름 바꾸기 (SUTRename.h)
-
-**test/SUTRename.h**
-
-```cpp
-#pragma once
-#include <cstdint>
-#include <stdexcept>
-
-#include "cppdatasetutil.h"
-
-#define Calc CalcStub
-#define Process ProcessStub
-#include "SUT.h"
-```
-`Calc` / `Process`를 `CalcStub` / `ProcessStub`으로 바꿔, 원래 이름을 스텁
-클래스에서 사용할 수 있게 합니다.
-
-- 이름을 바꾸면 안 되는 헤더(표준 헤더와 라이브러리 헤더)는 매크로 정의
-  **앞에** 인클루드하여, 라이브러리 안의 같은 이름의 멤버가 깨지지 않게
-  합니다.
-- `SUT.cpp`는 `--include SUTRename.h`로 컴파일하므로 `SUT::CalcStub` /
-  `SUT::ProcessStub`을 정의하게 됩니다. `Process` 안의 `Calc(data)` 호출도
-  `CalcStub(data)`로 바뀌므로 **SUT 내부의 자기 호출은 항상 실제 코드를
-  거칩니다**.
-
-### 2. 스텁 클래스 (SUTStub.h)
+헤더 하나, `test/SUTStub.h`가 모든 것을 처리합니다. 각 단계는 코드의 주석에
+설명되어 있으며, 기억해야 할 점은 아래와 같습니다.
 
 **test/SUTStub.h**
 
 ```cpp
 #pragma once
+// Stub for SUT. This single header is used in two ways (see the Makefile):
+//
+//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
+//     Only the renaming below takes effect, so SUT.cpp defines
+//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
+//     Process is renamed too, so the SUT's self-calls always reach real code.
+//
+//  2. Compiling the test:     --include SUTStub.h
+//     The test only ever writes "SUT"; the final #define turns it into
+//     SUTStub, so SUTStub is the only code that knows the real class.
+#include <cstdint>
 #include <map>
+#include <stdexcept>
 
-#include "SUTRename.h"
+// Include everything that must not be renamed BEFORE the macros below.
+#include "cppdatasetutil.h"
+
+// Rename the SUT's methods, freeing the original names for the stub class.
+#define Calc CalcStub
+#define Process ProcessStub
+#include "SUT.h"
+
+#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -104,6 +97,7 @@ class SUTStub : public SUT {
  public:
   enum class Method { Calc, Process };
 
+  // One slot per return type; add members (and StubTag values) as needed.
   union StubValue {
     int i;
     StubValue() {}
@@ -137,16 +131,28 @@ class SUTStub : public SUT {
   }
 };
 
-// Test code is compiled with --include SUTStub.h and only writes "SUT".
+// From here on, "SUT" means the stub.
 #define SUT SUTStub
+
+#endif  // SUT_UNDER_TEST
 ```
-- `SUTStub`은 `SUT`를 상속하고 원래 이름 `Calc` / `Process`를 정의합니다.
-  `useReal`이 참이면 실제 `SUT::CalcStub` 등을 호출하고, 거짓이면 설정된 스텁
-  값을 반환합니다.
-- 반환 타입을 늘리려면 `StubValue`(union)에 멤버를, `StubTag`에 값을
+- **이름 바꾸기**: `SUT.h`를 인클루드하기 전에 `#define Calc CalcStub` /
+  `#define Process ProcessStub`으로 SUT의 메서드 이름을 바꿔, 원래 이름을 스텁
+  클래스에서 사용할 수 있게 합니다. 이름을 바꾸면 안 되는 헤더(표준 헤더와
+  라이브러리 헤더)는 이 매크로들보다 **앞에** 인클루드하여, 라이브러리 안의
+  같은 이름의 멤버가 깨지지 않게 합니다.
+- **SUT도 같은 헤더로 컴파일**: `SUT.cpp`는
+  `-DSUT_UNDER_TEST --include SUTStub.h`로 컴파일합니다. 이름 바꾸기만 적용되어
+  `SUT::CalcStub` / `SUT::ProcessStub`이 정의됩니다. `Process` 안의
+  `Calc(data)` 호출도 `CalcStub(data)`로 바뀌므로 **SUT 내부의 자기 호출은 항상
+  실제 코드를 거칩니다**.
+- **스텁 클래스**: `SUTStub`은 `SUT`를 상속하고 원래 이름 `Calc` / `Process`를
+  정의합니다. `useReal`이 참이면 실제 `SUT::CalcStub` 등을 호출하고, 거짓이면
+  설정된 스텁 값을 반환합니다.
+- **반환 타입**: 늘리려면 `StubValue`(union)에 멤버를, `StubTag`에 값을
   추가합니다. 반환 타입이 서로 다른 메서드도 `configMap` 하나로 관리할 수
   있습니다.
-- 마지막의 `#define SUT SUTStub`이 핵심입니다. **실제 코드의 `SUT`를
+- 마지막의 **`#define SUT SUTStub`**이 핵심입니다. **실제 코드의 `SUT`를
   `SUTStub`으로 치환하여, 실제 `SUT`를 아는 것은 `SUTStub`뿐이 됩니다.**
   테스트 코드는 `SUT sut;`라고만 쓰면 스텁을 얻습니다.
 
@@ -190,8 +196,8 @@ int main() {
 ## 빌드
 
 ```makefile
-# SUT: force-include the rename header; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTRename.h -c src/SUT.cpp -o build/SUT.o
+# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
 
 # Test: force-include the stub (the test itself and the library are not measured)
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
@@ -235,7 +241,7 @@ g++(C++17), make, gcov가 필요합니다. CppDatasetUtil은
   생성한 예외 처리나 `std::string` 내부의 분기가 포함되어 있어 테스트로는 도달할
   수 없습니다. 이 예에서 분기 커버리지는 68.75%이지만 `Dataset`의 분기는 모두
   지나갔으며, `make coverage`는 참고용으로만 출력합니다.
-- **`private` 메서드를 직접 테스트하려면** `SUTRename.h`의 `#include "SUT.h"`를
+- **`private` 메서드를 직접 테스트하려면** `SUTStub.h`의 `#include "SUT.h"`를
   `#define private public` / `#undef private`로 감싸세요(표준 헤더를 먼저
   인클루드한 뒤). 이 예의 SUT에는 private 멤버가 없으므로 사용하지 않았습니다.
 
@@ -244,7 +250,6 @@ g++(C++17), make, gcov가 필요합니다. CppDatasetUtil은
 | 파일 | 역할 |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | 테스트 대상 |
-| `test/SUTRename.h` | 메서드 이름 바꾸기 |
 | `test/SUTStub.h` | 스텁 클래스와 `#define SUT SUTStub` |
 | `test/test_sut.cpp` | 테스트 코드 |
 | `Makefile` | 빌드와 커버리지 판정 |

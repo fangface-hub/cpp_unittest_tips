@@ -23,11 +23,11 @@ $(DATASET_LIB):
 $(BUILD):
 	mkdir -p $@
 
-$(SUT_OBJ): src/SUT.cpp src/SUT.h test/SUTRename.h | $(BUILD) $(DATASET_LIB)
+$(SUT_OBJ): src/SUT.cpp src/SUT.h test/SUTStub.h | $(BUILD) $(DATASET_LIB)
 	$(CXX) -std=$(CXXSTD) $(CPPFLAGS) $(CXXFLAGS) --coverage \
-		--include SUTRename.h -c $< -o $@
+		-DSUT_UNDER_TEST --include SUTStub.h -c $< -o $@
 
-$(TEST_BIN): test/test_sut.cpp test/SUTStub.h test/SUTRename.h $(SUT_OBJ) $(DATASET_LIB)
+$(TEST_BIN): test/test_sut.cpp test/SUTStub.h $(SUT_OBJ) $(DATASET_LIB)
 	$(CXX) -std=$(CXXSTD) $(CPPFLAGS) $(CXXFLAGS) --coverage \
 		--include SUTStub.h test/test_sut.cpp $(SUT_OBJ) $(DATASET_LIB) -o $@
 

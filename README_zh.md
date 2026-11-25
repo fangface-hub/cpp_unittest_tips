@@ -59,41 +59,36 @@ int SUT::Process(const Dataset& data) {
 
 ## 测试桩
 
-该机制分布在两个头文件中。
-
-### 1. 重命名方法（SUTRename.h）
-
-**test/SUTRename.h**
-
-```cpp
-#pragma once
-#include <cstdint>
-#include <stdexcept>
-
-#include "cppdatasetutil.h"
-
-#define Calc CalcStub
-#define Process ProcessStub
-#include "SUT.h"
-```
-将 `Calc` / `Process` 重命名为 `CalcStub` / `ProcessStub`，从而把原来的名字
-留给桩类使用。
-
-- 不能被重命名的头文件（标准头文件和库头文件）要在宏定义**之前**包含，以免
-  宏破坏库中的同名成员。
-- `SUT.cpp` 使用 `--include SUTRename.h` 编译，因此它定义的是
-  `SUT::CalcStub` / `SUT::ProcessStub`。`Process` 内部的 `Calc(data)` 调用也会
-  变成 `CalcStub(data)`，所以 **SUT 内部的自我调用始终走真实代码**。
-
-### 2. 桩类（SUTStub.h）
+只需一个头文件 `test/SUTStub.h` 即可完成全部工作。每一步都在代码注释中说明，
+需要记住的要点如下。
 
 **test/SUTStub.h**
 
 ```cpp
 #pragma once
+// Stub for SUT. This single header is used in two ways (see the Makefile):
+//
+//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
+//     Only the renaming below takes effect, so SUT.cpp defines
+//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
+//     Process is renamed too, so the SUT's self-calls always reach real code.
+//
+//  2. Compiling the test:     --include SUTStub.h
+//     The test only ever writes "SUT"; the final #define turns it into
+//     SUTStub, so SUTStub is the only code that knows the real class.
+#include <cstdint>
 #include <map>
+#include <stdexcept>
 
-#include "SUTRename.h"
+// Include everything that must not be renamed BEFORE the macros below.
+#include "cppdatasetutil.h"
+
+// Rename the SUT's methods, freeing the original names for the stub class.
+#define Calc CalcStub
+#define Process ProcessStub
+#include "SUT.h"
+
+#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -102,6 +97,7 @@ class SUTStub : public SUT {
  public:
   enum class Method { Calc, Process };
 
+  // One slot per return type; add members (and StubTag values) as needed.
   union StubValue {
     int i;
     StubValue() {}
@@ -135,14 +131,24 @@ class SUTStub : public SUT {
   }
 };
 
-// Test code is compiled with --include SUTStub.h and only writes "SUT".
+// From here on, "SUT" means the stub.
 #define SUT SUTStub
+
+#endif  // SUT_UNDER_TEST
 ```
-- `SUTStub` 继承 `SUT`，并定义原来的名字 `Calc` / `Process`。`useReal` 为真时
-  调用真实的 `SUT::CalcStub` 等，否则返回已设置的桩值。
-- 若要支持更多返回类型，只需在 `StubValue`（union）中添加成员，并在 `StubTag`
-  中添加取值。返回类型不同的方法也可以用同一个 `configMap` 管理。
-- 末尾的 `#define SUT SUTStub` 是关键。**它把真实代码中的 `SUT` 替换为
+- **重命名**：在包含 `SUT.h` 之前，用 `#define Calc CalcStub` /
+  `#define Process ProcessStub` 重命名 SUT 的方法，从而把原来的名字留给桩类使用。
+  不能被重命名的头文件（标准头文件和库头文件）要在这些宏**之前**包含，以免宏
+  破坏库中的同名成员。
+- **SUT 也用同一个头文件编译**：`SUT.cpp` 使用
+  `-DSUT_UNDER_TEST --include SUTStub.h` 编译，只有重命名生效，它定义的是
+  `SUT::CalcStub` / `SUT::ProcessStub`。`Process` 内部的 `Calc(data)` 调用也会
+  变成 `CalcStub(data)`，所以 **SUT 内部的自我调用始终走真实代码**。
+- **桩类**：`SUTStub` 继承 `SUT`，并定义原来的名字 `Calc` / `Process`。
+  `useReal` 为真时调用真实的 `SUT::CalcStub` 等，否则返回已设置的桩值。
+- **返回类型**：若要支持更多类型，在 `StubValue`（union）中添加成员，并在
+  `StubTag` 中添加取值。返回类型不同的方法也可以用同一个 `configMap` 管理。
+- 末尾的 **`#define SUT SUTStub`** 是关键。**它把真实代码中的 `SUT` 替换为
   `SUTStub`，使得只有 `SUTStub` 知道真正的 `SUT`。** 测试代码只需写
   `SUT sut;` 即可得到桩。
 
@@ -186,8 +192,8 @@ int main() {
 ## 构建
 
 ```makefile
-# SUT: force-include the rename header; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTRename.h -c src/SUT.cpp -o build/SUT.o
+# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
 
 # Test: force-include the stub (the test itself and the library are not measured)
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
@@ -227,7 +233,7 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 - **以行覆盖率作为判定标准。** gcov 的分支覆盖率包含编译器生成的异常处理和
   `std::string` 内部分支，测试无法到达。本例的分支覆盖率为 68.75%，但
   `Dataset` 的分支已全部覆盖；`make coverage` 仅将其作为参考输出。
-- **要直接测试 `private` 方法时**，在 `SUTRename.h` 中用
+- **要直接测试 `private` 方法时**，在 `SUTStub.h` 中用
   `#define private public` / `#undef private` 包住 `#include "SUT.h"`（需先包含
   标准头文件）。本例的 SUT 没有私有成员，因此没有使用。
 
@@ -236,7 +242,6 @@ make coverage   # gcov; fails unless line coverage of SUT.cpp is 100%
 | 文件 | 作用 |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | 被测代码 |
-| `test/SUTRename.h` | 方法重命名 |
 | `test/SUTStub.h` | 桩类和 `#define SUT SUTStub` |
 | `test/test_sut.cpp` | 测试代码 |
 | `Makefile` | 构建和覆盖率判定 |

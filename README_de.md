@@ -60,43 +60,36 @@ zwei (normal / Ausnahme). `Process` ruft intern `Calc` auf.
 
 ## Test-Stub
 
-Der Mechanismus verteilt sich auf zwei Header.
-
-### 1. Methoden umbenennen (SUTRename.h)
-
-**test/SUTRename.h**
-
-```cpp
-#pragma once
-#include <cstdint>
-#include <stdexcept>
-
-#include "cppdatasetutil.h"
-
-#define Calc CalcStub
-#define Process ProcessStub
-#include "SUT.h"
-```
-`Calc` / `Process` werden in `CalcStub` / `ProcessStub` umbenannt; die
-ursprünglichen Namen werden so für die Stub-Klasse frei.
-
-- Binden Sie alle Header, die nicht umbenannt werden dürfen (Standard- und
-  Bibliotheks-Header), **vor** den Makros ein, damit gleichnamige Member in der
-  Bibliothek nicht beschädigt werden.
-- `SUT.cpp` wird mit `--include SUTRename.h` kompiliert und definiert daher
-  `SUT::CalcStub` / `SUT::ProcessStub`. Auch der Aufruf `Calc(data)` in
-  `Process` wird zu `CalcStub(data)`, sodass **Selbstaufrufe des SUT immer den
-  echten Code erreichen**.
-
-### 2. Die Stub-Klasse (SUTStub.h)
+Ein einziger Header, `test/SUTStub.h`, erledigt alles. Die Kommentare im Code
+erklären jeden Schritt; die wichtigsten Punkte stehen unten.
 
 **test/SUTStub.h**
 
 ```cpp
 #pragma once
+// Stub for SUT. This single header is used in two ways (see the Makefile):
+//
+//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
+//     Only the renaming below takes effect, so SUT.cpp defines
+//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
+//     Process is renamed too, so the SUT's self-calls always reach real code.
+//
+//  2. Compiling the test:     --include SUTStub.h
+//     The test only ever writes "SUT"; the final #define turns it into
+//     SUTStub, so SUTStub is the only code that knows the real class.
+#include <cstdint>
 #include <map>
+#include <stdexcept>
 
-#include "SUTRename.h"
+// Include everything that must not be renamed BEFORE the macros below.
+#include "cppdatasetutil.h"
+
+// Rename the SUT's methods, freeing the original names for the stub class.
+#define Calc CalcStub
+#define Process ProcessStub
+#include "SUT.h"
+
+#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -105,6 +98,7 @@ class SUTStub : public SUT {
  public:
   enum class Method { Calc, Process };
 
+  // One slot per return type; add members (and StubTag values) as needed.
   union StubValue {
     int i;
     StubValue() {}
@@ -138,17 +132,31 @@ class SUTStub : public SUT {
   }
 };
 
-// Test code is compiled with --include SUTStub.h and only writes "SUT".
+// From here on, "SUT" means the stub.
 #define SUT SUTStub
+
+#endif  // SUT_UNDER_TEST
 ```
-- `SUTStub` erbt von `SUT` und definiert die ursprünglichen Namen `Calc` /
-  `Process`. Ist `useReal` wahr, wird das echte `SUT::CalcStub` usw. aufgerufen,
-  sonst der konfigurierte Stub-Wert zurückgegeben.
-- Für weitere Rückgabetypen fügen Sie `StubValue` (der Union) ein Member und
-  `StubTag` einen Wert hinzu. Eine einzige `configMap` verwaltet Methoden mit
-  unterschiedlichen Rückgabetypen.
-- Das abschließende `#define SUT SUTStub` ist der Kern. **Es ersetzt im echten
-  Code `SUT` durch `SUTStub`, sodass nur `SUTStub` das echte `SUT` kennt.** Der
+- **Umbenennen.** `#define Calc CalcStub` / `#define Process ProcessStub`
+  benennen die Methoden des SUT um, bevor `SUT.h` eingebunden wird; die
+  ursprünglichen Namen werden so für die Stub-Klasse frei. Binden Sie alle
+  Header, die nicht umbenannt werden dürfen (Standard- und Bibliotheks-Header),
+  **vor** diesen Makros ein, damit gleichnamige Member in der Bibliothek nicht
+  beschädigt werden.
+- **Das SUT mit demselben Header kompilieren.** `SUT.cpp` wird mit
+  `-DSUT_UNDER_TEST --include SUTStub.h` kompiliert; nur das Umbenennen wirkt
+  und es definiert `SUT::CalcStub` / `SUT::ProcessStub`. Auch der Aufruf
+  `Calc(data)` in `Process` wird zu `CalcStub(data)`, sodass **Selbstaufrufe des
+  SUT immer den echten Code erreichen**.
+- **Stub-Klasse.** `SUTStub` erbt von `SUT` und definiert die ursprünglichen
+  Namen `Calc` / `Process`. Ist `useReal` wahr, wird das echte
+  `SUT::CalcStub` usw. aufgerufen, sonst der konfigurierte Stub-Wert
+  zurückgegeben.
+- **Rückgabetypen.** Für weitere Typen fügen Sie `StubValue` (der Union) ein
+  Member und `StubTag` einen Wert hinzu. Eine einzige `configMap` verwaltet
+  Methoden mit unterschiedlichen Rückgabetypen.
+- **`#define SUT SUTStub`** am Ende ist der Kern. **Es ersetzt im echten Code
+  `SUT` durch `SUTStub`, sodass nur `SUTStub` das echte `SUT` kennt.** Der
   Testcode schreibt einfach `SUT sut;` und erhält den Stub.
 
 ## Testcode
@@ -191,8 +199,8 @@ int main() {
 ## Build
 
 ```makefile
-# SUT: force-include the rename header; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTRename.h -c src/SUT.cpp -o build/SUT.o
+# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
 
 # Test: force-include the stub (the test itself and the library are not measured)
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
@@ -239,7 +247,7 @@ in `third_party/CppDatasetUtil`.
   `Dataset`-Zweig abgedeckt ist; `make coverage` gibt sie nur zur Information
   aus.
 - **Um `private`-Methoden direkt zu testen**, umschließen Sie das
-  `#include "SUT.h"` in `SUTRename.h` mit `#define private public` /
+  `#include "SUT.h"` in `SUTStub.h` mit `#define private public` /
   `#undef private` (nachdem die Standard-Header eingebunden wurden). Dieses SUT
   hat keine privaten Member, daher wird es hier nicht verwendet.
 
@@ -248,7 +256,6 @@ in `third_party/CppDatasetUtil`.
 | Datei | Rolle |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | Zu testender Code |
-| `test/SUTRename.h` | Umbenennen der Methoden |
 | `test/SUTStub.h` | Stub-Klasse und `#define SUT SUTStub` |
 | `test/test_sut.cpp` | Testcode |
 | `Makefile` | Build und Abdeckungsprüfung |

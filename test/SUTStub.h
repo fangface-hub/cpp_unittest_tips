@@ -1,7 +1,27 @@
 #pragma once
+// Stub for SUT. This single header is used in two ways (see the Makefile):
+//
+//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
+//     Only the renaming below takes effect, so SUT.cpp defines
+//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
+//     Process is renamed too, so the SUT's self-calls always reach real code.
+//
+//  2. Compiling the test:     --include SUTStub.h
+//     The test only ever writes "SUT"; the final #define turns it into
+//     SUTStub, so SUTStub is the only code that knows the real class.
+#include <cstdint>
 #include <map>
+#include <stdexcept>
 
-#include "SUTRename.h"
+// Include everything that must not be renamed BEFORE the macros below.
+#include "cppdatasetutil.h"
+
+// Rename the SUT's methods, freeing the original names for the stub class.
+#define Calc CalcStub
+#define Process ProcessStub
+#include "SUT.h"
+
+#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -10,6 +30,7 @@ class SUTStub : public SUT {
  public:
   enum class Method { Calc, Process };
 
+  // One slot per return type; add members (and StubTag values) as needed.
   union StubValue {
     int i;
     StubValue() {}
@@ -43,5 +64,7 @@ class SUTStub : public SUT {
   }
 };
 
-// Test code is compiled with --include SUTStub.h and only writes "SUT".
+// From here on, "SUT" means the stub.
 #define SUT SUTStub
+
+#endif  // SUT_UNDER_TEST

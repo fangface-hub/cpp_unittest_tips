@@ -60,43 +60,36 @@ ha due (normale / eccezione). `Process` chiama `Calc` internamente.
 
 ## Stub di test
 
-Il meccanismo è suddiviso in due header.
-
-### 1. Rinominare i metodi (SUTRename.h)
-
-**test/SUTRename.h**
-
-```cpp
-#pragma once
-#include <cstdint>
-#include <stdexcept>
-
-#include "cppdatasetutil.h"
-
-#define Calc CalcStub
-#define Process ProcessStub
-#include "SUT.h"
-```
-`Calc` / `Process` vengono rinominati in `CalcStub` / `ProcessStub`, liberando
-i nomi originali per la classe stub.
-
-- Includete **prima** delle macro tutti gli header che non devono essere
-  rinominati (header standard e di librerie), per non rompere i membri con lo
-  stesso nome all'interno della libreria.
-- `SUT.cpp` viene compilato con `--include SUTRename.h`, quindi definisce
-  `SUT::CalcStub` / `SUT::ProcessStub`. Anche la chiamata `Calc(data)` dentro
-  `Process` diventa `CalcStub(data)`, perciò **le auto-chiamate del SUT
-  raggiungono sempre il codice reale**.
-
-### 2. La classe stub (SUTStub.h)
+Un solo header, `test/SUTStub.h`, fa tutto. I commenti nel codice spiegano ogni
+passaggio; i punti da ricordare sono qui sotto.
 
 **test/SUTStub.h**
 
 ```cpp
 #pragma once
+// Stub for SUT. This single header is used in two ways (see the Makefile):
+//
+//  1. Compiling src/SUT.cpp:  -DSUT_UNDER_TEST --include SUTStub.h
+//     Only the renaming below takes effect, so SUT.cpp defines
+//     SUT::CalcStub / SUT::ProcessStub. A call such as Calc(data) inside
+//     Process is renamed too, so the SUT's self-calls always reach real code.
+//
+//  2. Compiling the test:     --include SUTStub.h
+//     The test only ever writes "SUT"; the final #define turns it into
+//     SUTStub, so SUTStub is the only code that knows the real class.
+#include <cstdint>
 #include <map>
+#include <stdexcept>
 
-#include "SUTRename.h"
+// Include everything that must not be renamed BEFORE the macros below.
+#include "cppdatasetutil.h"
+
+// Rename the SUT's methods, freeing the original names for the stub class.
+#define Calc CalcStub
+#define Process ProcessStub
+#include "SUT.h"
+
+#ifndef SUT_UNDER_TEST
 
 #undef Calc
 #undef Process
@@ -105,6 +98,7 @@ class SUTStub : public SUT {
  public:
   enum class Method { Calc, Process };
 
+  // One slot per return type; add members (and StubTag values) as needed.
   union StubValue {
     int i;
     StubValue() {}
@@ -138,18 +132,30 @@ class SUTStub : public SUT {
   }
 };
 
-// Test code is compiled with --include SUTStub.h and only writes "SUT".
+// From here on, "SUT" means the stub.
 #define SUT SUTStub
+
+#endif  // SUT_UNDER_TEST
 ```
-- `SUTStub` deriva da `SUT` e definisce i nomi originali `Calc` / `Process`.
-  Se `useReal` è vero chiama il reale `SUT::CalcStub` ecc.; altrimenti
-  restituisce il valore di stub configurato.
-- Per supportare altri tipi di ritorno, aggiungete un membro a `StubValue`
-  (l'union) e un valore a `StubTag`. Una sola `configMap` gestisce metodi con
-  tipi di ritorno diversi.
-- Il `#define SUT SUTStub` finale è il punto chiave. **Sostituisce `SUT` con
-  `SUTStub` nel codice reale, quindi solo `SUTStub` conosce il vero `SUT`.** Il
-  codice di test scrive semplicemente `SUT sut;` e ottiene lo stub.
+- **Rinominare.** `#define Calc CalcStub` / `#define Process ProcessStub`
+  rinominano i metodi del SUT prima dell'inclusione di `SUT.h`, liberando i nomi
+  originali per la classe stub. Includete **prima** di queste macro tutti gli
+  header che non devono essere rinominati (header standard e di librerie), per
+  non rompere i membri con lo stesso nome all'interno della libreria.
+- **Compilare il SUT con lo stesso header.** `SUT.cpp` viene compilato con
+  `-DSUT_UNDER_TEST --include SUTStub.h`; ha effetto solo la ridenominazione e
+  vengono definiti `SUT::CalcStub` / `SUT::ProcessStub`. Anche la chiamata
+  `Calc(data)` dentro `Process` diventa `CalcStub(data)`, perciò **le
+  auto-chiamate del SUT raggiungono sempre il codice reale**.
+- **Classe stub.** `SUTStub` deriva da `SUT` e definisce i nomi originali
+  `Calc` / `Process`. Se `useReal` è vero chiama il reale `SUT::CalcStub` ecc.;
+  altrimenti restituisce il valore di stub configurato.
+- **Tipi di ritorno.** Per supportarne altri, aggiungete un membro a
+  `StubValue` (l'union) e un valore a `StubTag`. Una sola `configMap` gestisce
+  metodi con tipi di ritorno diversi.
+- Il **`#define SUT SUTStub`** finale è il punto chiave. **Sostituisce `SUT`
+  con `SUTStub` nel codice reale, quindi solo `SUTStub` conosce il vero
+  `SUT`.** Il codice di test scrive semplicemente `SUT sut;` e ottiene lo stub.
 
 ## Codice di test
 
@@ -191,8 +197,8 @@ int main() {
 ## Build
 
 ```makefile
-# SUT: force-include the rename header; only the SUT is instrumented for coverage
-$(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTRename.h -c src/SUT.cpp -o build/SUT.o
+# SUT: only the renaming part of the stub header is active; only the SUT is instrumented for coverage
+$(CXX) -std=c++17 $(CPPFLAGS) --coverage -DSUT_UNDER_TEST --include SUTStub.h -c src/SUT.cpp -o build/SUT.o
 
 # Test: force-include the stub (the test itself and the library are not measured)
 $(CXX) -std=c++17 $(CPPFLAGS) --coverage --include SUTStub.h \
@@ -239,7 +245,7 @@ Richiede g++ (C++17), make e gcov. CppDatasetUtil è un sottomodulo in
   sebbene ogni ramo di `Dataset` sia coperto; `make coverage` la stampa solo a
   titolo informativo.
 - **Per testare direttamente metodi `private`**, racchiudete il
-  `#include "SUT.h"` in `SUTRename.h` tra `#define private public` /
+  `#include "SUT.h"` in `SUTStub.h` tra `#define private public` /
   `#undef private` (dopo aver incluso gli header standard). Questo SUT non ha
   membri privati, quindi qui non viene usato.
 
@@ -248,7 +254,6 @@ Richiede g++ (C++17), make e gcov. CppDatasetUtil è un sottomodulo in
 | File | Ruolo |
 | :-- | :-- |
 | `src/SUT.h`, `src/SUT.cpp` | Codice sotto test |
-| `test/SUTRename.h` | Ridenominazione dei metodi |
 | `test/SUTStub.h` | Classe stub e `#define SUT SUTStub` |
 | `test/test_sut.cpp` | Codice di test |
 | `Makefile` | Build e controllo della copertura |
