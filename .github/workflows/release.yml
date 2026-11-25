@@ -1,5 +1,6 @@
 name: Release
 
+# Bump with tools/set_version.sh X.Y.Z (updates VERSION and every README).
 # Runs when VERSION changes on main (or manually). Creates tag v<VERSION> and a
 # GitHub release whose notes are generated from the commit log, with a zip of
 # the repository attached.
